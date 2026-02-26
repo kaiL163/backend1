@@ -101,8 +101,9 @@ SHIKIMORI_DOMAINS = ["shikimori.io", "shikimori.one", "shikimori.me"]
 _STICKY_DOMAIN = "shikimori.io"
 
 # API domains (working mirrors for backend search)
-KODIK_API_DOMAINS = ["kodikapi.com", "kodikapi.me", "kodik-api.com", "kodikas.biz"]
-_KODIK_STICKY_API = "kodikapi.com"
+# Reordered to try alternative mirrors first if kodikapi.com fails on Render
+KODIK_API_DOMAINS = ["kodikapi.me", "kodik-api.com", "kodikapi.com", "kodikas.biz", "kodiapi.com"]
+_KODIK_STICKY_API = "kodikapi.me"
 
 # Player domains (browser mirrors preferred by user)
 KODIK_PLAYER_DOMAINS = ["kodik.info", "kodik.cc", "kodikdb.com"]
@@ -147,10 +148,11 @@ async def fetch_kodik_api(endpoint: str, params: dict) -> Tuple[list, Optional[s
                         _KODIK_STICKY_API = domain
                     return results, domain
                 else:
-                    # If 200 but empty, it might be this mirror's DB is laggy. Try next.
                     print(f"[Kodik/api] {domain} returned 0 results for {params.get('shikimori_id')}")
             else:
-                print(f"[Kodik/api] {domain} error {res.status_code}")
+                # Log status and truncated token for debugging on Render
+                masked_token = f"{KODIK_TOKEN[:4]}...{KODIK_TOKEN[-4:]}" if KODIK_TOKEN else "None"
+                print(f"[Kodik/api] {domain} error {res.status_code} (Token: {masked_token})")
         except Exception as e:
             # print(f"[Kodik/api] {domain} failed: {e}")
             continue
