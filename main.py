@@ -90,7 +90,7 @@ _KODIK_STICKY_API = "kodikapi.com"
 
 
 # Player domains (browser mirrors preferred by user)
-KODIK_PLAYER_DOMAINS = ["kodikapi.com", "kodik.info", "kodik.cc", "kodikdb.com"]
+KODIK_PLAYER_DOMAINS = ["kodik.info", "kodik.cc", "kodikapi.com", "kodikdb.com"]
 
 async def fetch_shikimori_graphql(query: str, variables: Optional[dict] = None) -> Tuple[Optional[Any], Optional[str]]:
     global _STICKY_DOMAIN
@@ -358,6 +358,7 @@ async def kodik_by_shikimori(shikimori_id: str):
                         "link": link,
                         "episodes_count": int(ep_count),
                     }
+                    print(f"[Kodik/link] Result link for {shikimori_id}: {link}")
 
         result = {
             "found": True,
