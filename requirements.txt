@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+httpx
+sqlalchemy
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+python-multipart
+anime-parsers-ru[async]

@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+.env
+
+# Database
+*.db
+*.sqlite3
+
+# Local test data
+*.json
+kodik_test.html
+static/avatars/*
+!static/avatars/.gitkeep
