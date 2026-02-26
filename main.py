@@ -160,28 +160,38 @@ async def fetch_collaps_api(kinopoisk_id: str) -> list:
     return []
 
 async def fetch_kinobox_api(kinopoisk_id: str) -> list:
-    """Fetches player links from Kinobox API with required JS-like timestamp."""
-    try:
-        # Replicating JS logic: Math.ceil(Date.now() / 1e3) % 1e5
-        now_ts = int(time.time())
-        s = now_ts % 100000
-        i = s % 100
-        r = i - (i % 3)
-        ts_val = f"{s - i + r}.{KINOBOX_SESSION_ID}"
-        
-        url = "https://api.kinobox.tv/api/players"
-        params = {"kinopoisk": kinopoisk_id, "ts": ts_val}
-        headers = {
-            "Referer": KINOBOX_REFERER,
-            "Origin": KINOBOX_REFERER.rstrip("/"),
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        }
-        res = await http_client.get(url, params=params, headers=headers, timeout=10.0)
-        if res.status_code == 200:
-            data = res.json()
-            return data.get("data", [])
-    except Exception as e:
-        print(f"[Kinobox/api] error: {e}")
+    """Fetches player links from Kinobox API with retry logic for stability."""
+    # Replicating JS logic: Math.ceil(Date.now() / 1e3) % 1e5
+    now_ts = int(time.time())
+    s = now_ts % 100000
+    i = s % 100
+    r = i - (i % 3)
+    ts_val = f"{s - i + r}.{KINOBOX_SESSION_ID}"
+    
+    url = "https://api.kinobox.tv/api/players"
+    params = {"kinopoisk": kinopoisk_id, "ts": ts_val}
+    headers = {
+        "Referer": KINOBOX_REFERER,
+        "Origin": KINOBOX_REFERER.rstrip("/"),
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    }
+    
+    for attempt in range(2):
+        try:
+            res = await http_client.get(url, params=params, headers=headers, timeout=20.0)
+            if res.status_code == 200:
+                data = res.json()
+                return data.get("data", [])
+            elif res.status_code == 404:
+                return []
+        except (httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+            if attempt == 0:
+                await asyncio.sleep(1)
+                continue
+            print(f"[Kinobox/api] Disconnect/Timeout on {kinopoisk_id}: {e}")
+        except Exception as e:
+            print(f"[Kinobox/api] error: {e}")
+            break
     return []
 
 
@@ -549,28 +559,28 @@ async def shikimori_catalog(request: Request):
 async def kodik_video_links(shikimori_id: int):
     """
     Returns direct video links (HLS or MP4) for the given Shikimori ID.
-    Uses 'with_link=true' to get raw file URLs.
+    Uses 'with_link=true' to get raw file URLs. Utilizing mirrors for reliability.
     """
     try:
-        token = await get_kodik_token()
-        r = await kodik_client.get("https://kodikapi.com/search", params={
-            "token": token,
+        # Switch to the robust mirror-rotating helper
+        results, domain = await fetch_kodik_api("/search", {
             "shikimori_id": shikimori_id,
             "with_link": "true",
             "with_episodes": "true"
         })
         
-        if r.status_code != 200:
-            return {"error": f"HTTP {r.status_code}"}
-            
-        data = r.json()
-        results = data.get("results", [])
         if not results:
             return {"found": False, "error": "No results for this ID"}
             
         all_sources = []
         for res in results:
+            if not isinstance(res, dict):
+                continue
+                
             trans = res.get("translation", {})
+            if not isinstance(trans, dict):
+                trans = {}
+                
             trans_title = trans.get("title", "Unknown")
             trans_id = trans.get("id")
             
@@ -580,20 +590,26 @@ async def kodik_video_links(shikimori_id: int):
             
             # Serial seasons/episodes
             seasons_data = []
-            for s in res.get("seasons", []):
-                s_num = s.get("season_number")
-                eps_data = []
-                for e in s.get("episodes", []):
-                    e_num = e.get("episode_number")
-                    eps_data.append({
-                        "episode": e_num,
-                        "links": e.get("links", {}),
-                        "hls": e.get("hls")
+            seasons_raw = res.get("seasons", [])
+            if isinstance(seasons_raw, list):
+                for s in seasons_raw:
+                    if not isinstance(s, dict): continue
+                    s_num = s.get("season_number")
+                    eps_data = []
+                    eps_raw = s.get("episodes", [])
+                    if isinstance(eps_raw, list):
+                        for e in eps_raw:
+                            if not isinstance(e, dict): continue
+                            e_num = e.get("episode_number")
+                            eps_data.append({
+                                "episode": e_num,
+                                "links": e.get("links", {}),
+                                "hls": e.get("hls")
+                            })
+                    seasons_data.append({
+                        "season": s_num,
+                        "episodes": eps_data
                     })
-                seasons_data.append({
-                    "season": s_num,
-                    "episodes": eps_data
-                })
                 
             all_sources.append({
                 "translation_title": trans_title,
@@ -603,8 +619,10 @@ async def kodik_video_links(shikimori_id: int):
                 "seasons": seasons_data
             })
             
-        return {"found": True, "sources": all_sources}
+        return {"found": True, "sources": all_sources, "mirror": domain}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"[Kodik/video-links] Error for '{shikimori_id}': {e}")
         return {"found": False, "error": str(e)}
 
