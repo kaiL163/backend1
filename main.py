@@ -53,6 +53,7 @@ app.add_middleware(
         "http://0.0.0.0:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
+        "https://vh19690.ffox.site",
     ],
     allow_credentials=True,
     allow_methods=["*"],
