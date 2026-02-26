@@ -84,13 +84,9 @@ from typing import Optional, Tuple, Any
 SHIKIMORI_DOMAINS = ["shikimori.io", "shikimori.one", "shikimori.me"]
 _STICKY_DOMAIN = "shikimori.io"
 
-# API domains (working mirrors for backend search)
-KODIK_API_DOMAINS = ["kodikapi.com", "kodik-api.com", "kodikas.biz", "kodiapi.com"]
-_KODIK_STICKY_API = "kodikapi.com"
-
-
-# Player domains (browser mirrors preferred by user)
-KODIK_PLAYER_DOMAINS = ["kodikapi.com", "kodik.info", "kodik.cc", "kodikdb.com"]
+# Primary domains for API and Player
+KODIK_API_DOMAINS = ["kodikapi.com"]
+KODIK_PLAYER_DOMAINS = ["kodikapi.com"]
 
 async def fetch_shikimori_graphql(query: str, variables: Optional[dict] = None) -> Tuple[Optional[Any], Optional[str]]:
     global _STICKY_DOMAIN
@@ -110,33 +106,24 @@ async def fetch_shikimori_graphql(query: str, variables: Optional[dict] = None) 
     return None, None
 
 async def fetch_kodik_api(endpoint: str, params: dict) -> Tuple[list, Optional[str]]:
-    global _KODIK_STICKY_API, KODIK_TOKEN
-    
-    # Prioritize sticky, then others
-    ordered = [_KODIK_STICKY_API] + [d for d in KODIK_API_DOMAINS if d != _KODIK_STICKY_API]
+    ordered = KODIK_API_DOMAINS
     
     for domain in ordered:
         try:
             full_params = {"token": KODIK_TOKEN, **params}
             url = f"https://{domain}{endpoint}"
-            # Use a fresh client for each mirror to avoid session issues if needed, 
-            # but kodik_client is fine.
             res = await kodik_client.get(url, params=full_params) 
             
             if res.status_code == 200:
                 data = res.json()
                 results = data.get("results", [])
                 if results:
-                    if domain != _KODIK_STICKY_API:
-                        print(f"[Kodik/api] Sticky switch: {domain}")
-                        _KODIK_STICKY_API = domain
                     return results, domain
                 else:
-                    print(f"[Kodik/api] {domain} returned 0 results for {params.get('shikimori_id')}")
+                    print(f"[Kodik/api] {domain} returned 0 results")
             else:
-                # Log status and truncated token for debugging on Render
                 masked_token = f"{KODIK_TOKEN[:4]}...{KODIK_TOKEN[-4:]}" if KODIK_TOKEN else "None"
-                print(f"[Kodik/api] {domain} error {res.status_code} (Token: {masked_token})")
+                print(f"[Kodik/api] {domain} error {res.status_code}")
         except Exception as e:
             # print(f"[Kodik/api] {domain} failed: {e}")
             continue
@@ -337,19 +324,8 @@ async def kodik_by_shikimori(shikimori_id: str):
                     if link.startswith("//"):
                         link = "https:" + link
                     
-                    # Rewrite player link to use working user-provided mirror
-                    # We take the first one (kodik.cc) as primary player mirror
-                    for old in ["kodikapi.com", "kodik.info", "kodik.biz", "kodik.cc", "kodikdb.com"]:
-                        if old in link:
-                            link = link.replace(old, KODIK_PLAYER_DOMAINS[0])
-                            break
-                    
                     # Compute episode count
-                    ep_count = item.get("episodes_count")
-                    if not ep_count:
-                        ep_count = item.get("last_episode")
-                    if not ep_count:
-                        ep_count = 1
+                    ep_count = item.get("episodes_count") or item.get("last_episode") or 1
                         
                     seen[key] = {
                         "translation_id": key,
@@ -358,7 +334,6 @@ async def kodik_by_shikimori(shikimori_id: str):
                         "link": link,
                         "episodes_count": int(ep_count),
                     }
-                    print(f"[Kodik/link] Result link for {shikimori_id}: {link}")
 
         result = {
             "found": True,
