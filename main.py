@@ -100,12 +100,12 @@ from typing import Optional, Tuple, Any
 SHIKIMORI_DOMAINS = ["shikimori.io", "shikimori.one", "shikimori.me"]
 _STICKY_DOMAIN = "shikimori.io"
 
-# API domain (strictly kodikapi.com for backend search)
-KODIK_API_DOMAINS = ["kodikapi.com"]
+# API domains (working mirrors for backend search)
+KODIK_API_DOMAINS = ["kodikapi.com", "kodikapi.me", "kodik-api.com", "kodikas.biz"]
 _KODIK_STICKY_API = "kodikapi.com"
 
-# Player domain (strictly kodikapi.com as requested)
-KODIK_PLAYER_DOMAINS = ["kodikapi.com"]
+# Player domains (browser mirrors preferred by user)
+KODIK_PLAYER_DOMAINS = ["kodik.info", "kodik.cc", "kodikdb.com"]
 
 async def fetch_shikimori_graphql(query: str, variables: Optional[dict] = None) -> Tuple[Optional[Any], Optional[str]]:
     global _STICKY_DOMAIN
