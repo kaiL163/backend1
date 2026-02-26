@@ -101,12 +101,12 @@ SHIKIMORI_DOMAINS = ["shikimori.io", "shikimori.one", "shikimori.me"]
 _STICKY_DOMAIN = "shikimori.io"
 
 # API domains (working mirrors for backend search)
-# Reordered to try alternative mirrors first if kodikapi.com fails on Render
-KODIK_API_DOMAINS = ["kodikapi.me", "kodik-api.com", "kodikapi.com", "kodikas.biz", "kodiapi.com"]
-_KODIK_STICKY_API = "kodikapi.me"
+KODIK_API_DOMAINS = ["kodikapi.com", "kodik-api.com", "kodikas.biz", "kodiapi.com"]
+_KODIK_STICKY_API = "kodikapi.com"
 
 # Player domains (browser mirrors preferred by user)
-KODIK_PLAYER_DOMAINS = ["kodik.info", "kodik.cc", "kodikdb.com"]
+# Player domains (browser mirrors preferred by user)
+KODIK_PLAYER_DOMAINS = ["kodikapi.com", "kodik.info", "kodik.cc", "kodikdb.com"]
 
 async def fetch_shikimori_graphql(query: str, variables: Optional[dict] = None) -> Tuple[Optional[Any], Optional[str]]:
     global _STICKY_DOMAIN
