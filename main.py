@@ -25,26 +25,8 @@ os.makedirs("static/avatars", exist_ok=True)
 KODIK_TOKEN = "a0457eb45312af80bbb9f3fb33de3e93" # Fallback
 
 async def get_kodik_token():
-    """Scrapes the latest Kodik token from kodik-add.com"""
-    try:
-        res = await http_client.get(
-            'https://kodik-add.com/add-players.min.js?v=2',
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36',
-                'Referer': 'https://kodik.info/',
-            }
-        )
-        if res.status_code != 200: return KODIK_TOKEN
-        text = res.text
-        idx = text.find('token="')
-        if idx == -1: return KODIK_TOKEN
-        start = idx + 7
-        end = text.find('"', start)
-        if end == -1: return KODIK_TOKEN
-        token = text[start:end]
-        return token if len(token) >= 8 else KODIK_TOKEN
-    except:
-        return KODIK_TOKEN
+    """Returns the hardcoded Kodik token as requested."""
+    return "a0457eb45312af80bbb9f3fb33de3e93"
 
 # ── HTTP CLIENTS ──────────────────────────────────────────────
 # We use separate transports to control retry behavior effectively.
@@ -81,8 +63,8 @@ KODIK_TOKEN = "a0457eb45312af80bbb9f3fb33de3e93" # Initial fallback
 @app.on_event("startup")
 async def startup_event():
     global KODIK_TOKEN
-    KODIK_TOKEN = await get_kodik_token()
-    print(f"[Startup] Refreshed Kodik token: {KODIK_TOKEN[:5]}...")
+    # Token is now hardcoded as requested by user
+    print(f"[Startup] Using pre-defined Kodik token: {KODIK_TOKEN[:5]}...")
 
 kodik_client = httpx.AsyncClient(
     transport=kodik_transport,
