@@ -10,6 +10,8 @@ import re
 import os
 import asyncio
 import datetime
+import random
+import time
 
 # Database and Auth imports
 from database import engine, Base
@@ -87,8 +89,11 @@ KODIK_API_DOMAINS = ["kodikapi.com", "kodik-api.com", "kodikas.biz", "kodiapi.co
 _KODIK_STICKY_API = "kodikapi.com"
 
 # Player domains (browser mirrors preferred by user)
-# Player domains (browser mirrors preferred by user)
 KODIK_PLAYER_DOMAINS = ["kodikapi.com", "kodik.info", "kodik.cc", "kodikdb.com"]
+
+COLLAPS_TOKEN = "4c250f7ac0a8c8a658c789186b9a58a5"
+KINOBOX_REFERER = "https://kinohost.web.app/"
+KINOBOX_SESSION_ID = str(random.randint(10, 99))
 
 async def fetch_shikimori_graphql(query: str, variables: Optional[dict] = None) -> Tuple[Optional[Any], Optional[str]]:
     global _STICKY_DOMAIN
@@ -141,6 +146,44 @@ async def fetch_kodik_api(endpoint: str, params: dict) -> Tuple[list, Optional[s
             
     return [], None
 
+async def fetch_collaps_api(kinopoisk_id: str) -> list:
+    """Fetches player links from Collaps API."""
+    try:
+        url = "https://apicollaps.cc/list"
+        params = {"token": COLLAPS_TOKEN, "kinopoisk_id": kinopoisk_id}
+        res = await http_client.get(url, params=params, timeout=10.0)
+        if res.status_code == 200:
+            data = res.json()
+            return data.get("results", [])
+    except Exception as e:
+        print(f"[Collaps/api] error: {e}")
+    return []
+
+async def fetch_kinobox_api(kinopoisk_id: str) -> list:
+    """Fetches player links from Kinobox API with required JS-like timestamp."""
+    try:
+        # Replicating JS logic: Math.ceil(Date.now() / 1e3) % 1e5
+        now_ts = int(time.time())
+        s = now_ts % 100000
+        i = s % 100
+        r = i - (i % 3)
+        ts_val = f"{s - i + r}.{KINOBOX_SESSION_ID}"
+        
+        url = "https://api.kinobox.tv/api/players"
+        params = {"kinopoisk": kinopoisk_id, "ts": ts_val}
+        headers = {
+            "Referer": KINOBOX_REFERER,
+            "Origin": KINOBOX_REFERER.rstrip("/"),
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        }
+        res = await http_client.get(url, params=params, headers=headers, timeout=10.0)
+        if res.status_code == 200:
+            data = res.json()
+            return data.get("data", [])
+    except Exception as e:
+        print(f"[Kinobox/api] error: {e}")
+    return []
+
 
 def sanitize_description(text: str) -> str:
     if not text:
@@ -159,6 +202,16 @@ app.include_router(users.router)
 @app.get("/")
 async def root():
     return {"status": "ok", "version": "3.0.0", "primary": "kodik"}
+
+@app.get("/collaps/by-kinopoisk/{kp_id}")
+async def collaps_by_kp(kp_id: str):
+    results = await fetch_collaps_api(kp_id)
+    return {"found": len(results) > 0, "results": results}
+
+@app.get("/kinobox/by-kinopoisk/{kp_id}")
+async def kinobox_by_kp(kp_id: str):
+    results = await fetch_kinobox_api(kp_id)
+    return {"found": len(results) > 0, "results": results}
 
 
 
