@@ -97,13 +97,20 @@ async def fetch_shikimori_graphql(query: str, variables: Optional[dict] = None) 
             res = await http_client.post(
                 f"https://{domain}/api/graphql",
                 json={"query": query, "variables": variables} if variables else {"query": query},
-                headers={"User-Agent": "NekoStream/2.0", "Connection": "close"},
-                timeout=2.0
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", 
+                    "Connection": "close"
+                },
+                timeout=5.0
             )
             if res.status_code == 200:
                 _STICKY_DOMAIN = domain
                 return res, domain
-        except: continue
+            else:
+                print(f"[Shikimori/GraphQL] Domain {domain} returned {res.status_code}")
+        except Exception as e:
+            print(f"[Shikimori/GraphQL] Failed to reach {domain}: {e}")
+            continue
     return None, None
 
 async def fetch_kodik_api(endpoint: str, params: dict) -> Tuple[list, Optional[str]]:
