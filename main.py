@@ -6,6 +6,7 @@ Run: uvicorn main:app --reload --port 8000
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
+from typing import Optional, Tuple, Any, List
 import re
 import os
 import asyncio
@@ -18,11 +19,19 @@ from database import engine, Base
 import models
 from routers import users
 from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
+from anime365.client import Anime365Client
+
+# Load ENV
+load_dotenv()
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
 os.makedirs("static/avatars", exist_ok=True)
+
+# Global Anime365 Client
+anime365_client: Optional[Anime365Client] = None
 
 KODIK_TOKEN = "a0457eb45312af80bbb9f3fb33de3e93" # Fallback
 
@@ -69,9 +78,20 @@ KODIK_TOKEN = "a0457eb45312af80bbb9f3fb33de3e93" # Initial fallback
 
 @app.on_event("startup")
 async def startup_event():
-    global KODIK_TOKEN
+    global KODIK_TOKEN, anime365_client
     # Token is now hardcoded as requested by user
     print(f"[Startup] Using pre-defined Kodik token: {KODIK_TOKEN[:5]}...")
+    
+    # Initialize Anime365
+    email = os.getenv("ANIME365_EMAIL")
+    password = os.getenv("ANIME365_PASSWORD")
+    if email and password:
+        try:
+            anime365_client = Anime365Client(email=email, password=password)
+            await anime365_client.login()
+            print(f"[Startup] Anime365 logged in as {email}")
+        except Exception as e:
+            print(f"[Startup] Anime365 login failed: {e}")
 
 kodik_client = httpx.AsyncClient(
     transport=kodik_transport,
@@ -566,14 +586,14 @@ async def anilibria_video_links_route(shikimori_id: int):
 @app.get("/video/all-links/{shikimori_id}")
 async def all_video_links(shikimori_id: int):
     """
-    Unified endpoint for direct video links from AniLibria and Kodik.
+    Unified endpoint for direct video links from Anime365 and Kodik.
     """
     all_sources = []
     
-    # 1. Fetch AniLibria links
-    libria_data = await anilibria_video_links(shikimori_id)
-    if isinstance(libria_data, dict) and libria_data.get("found"):
-        all_sources.extend(libria_data.get("sources", []))
+    # 1. Fetch Anime365 links
+    a365_data = await anime365_video_links(shikimori_id)
+    if isinstance(a365_data, dict) and a365_data.get("found"):
+        all_sources.extend(a365_data.get("sources", []))
         
     # 2. Fetch Kodik links
     kodik_data = await kodik_video_links(shikimori_id)
@@ -734,6 +754,141 @@ async def anilibria_video_links(shikimori_id: int):
 
 import random
 import asyncio
+
+from fastapi import Response
+from fastapi.responses import RedirectResponse
+
+@app.get("/anime365/stream/{translation_id}/index.m3u8")
+@app.get("/anime365/stream/{translation_id}")
+async def anime365_stream_proxy(translation_id: int, quality: int = 720):
+    """
+    Redirects to the actual stream URL for a given translation.
+    Used to handle dynamic URLs in the player.
+    """
+    if not anime365_client:
+        return Response(status_code=503)
+    try:
+        embed = await anime365_client.get_embed_data(translation_id)
+        if embed.stream:
+            # Find closest quality
+            best_stream = embed.stream[0]
+            for s in embed.stream:
+                if s.height == quality:
+                    best_stream = s
+                    break
+            
+            if best_stream.urls:
+                return RedirectResponse(url=best_stream.urls[0])
+        
+        # Fallback to embed URL if direct streams failed
+        if embed.embedUrl:
+            return RedirectResponse(url=embed.embedUrl)
+            
+    except Exception as e:
+        print(f"[Anime365/Stream] Error: {e}")
+    
+    return Response(status_code=404)
+
+async def anime365_video_links(shikimori_id: int):
+    """
+    Fetches video data using the anime365 library.
+    Maps translations to NekoSource format.
+    """
+    if not anime365_client:
+        return {"found": False, "error": "Anime365 not initialized"}
+
+    try:
+        # 1. Find the series ID
+        # search_anime also works with shikimori ID if the library supports it or we use titles
+        # Based on library inspection, it might need titles. Let's get titles from Shikimori first.
+        gql_query = f"""
+        query {{
+          animes(ids: "{shikimori_id}", limit: 1) {{
+            name
+            russian
+          }}
+        }}
+        """
+        shiki_res, _ = await fetch_shikimori_graphql(gql_query)
+        if not shiki_res:
+            return {"found": False, "error": "Metadata failed"}
+            
+        data = shiki_res.json().get("data", {}).get("animes", [])
+        if not data:
+            return {"found": False, "error": "Title not found"}
+            
+        title_en = data[0].get("name")
+        title_ru = data[0].get("russian")
+        
+        # Search on Anime365
+        search_results = await anime365_client.search_anime(title_en or title_ru)
+        if not search_results:
+            search_results = await anime365_client.search_anime(title_ru)
+            
+        if not search_results:
+            return {"found": False, "error": "Not found on Anime365"}
+            
+        # Select best series (often first one)
+        series = search_results[0]
+        
+        # 2. Get all translations
+        # limit=100 to get as many as possible
+        translations = await anime365_client.get_anime_translations(series.id, limit=300)
+        
+        if not translations:
+            return {"found": False, "error": "No translations found"}
+            
+        # 3. Group by author
+        sources_map = {} # { author_name: NekoSource }
+        
+        for t in translations:
+            author = t.authorsSummary or "Unknown"
+            if author not in sources_map:
+                sources_map[author] = {
+                    "translation_title": author,
+                    "translation_id": t.id, # Base ID
+                    "links": {},
+                    "seasons": [{
+                        "season": 1,
+                        "episodes": []
+                    }]
+                }
+            
+            # Map quality/links to a proxy that will resolve the real URL on play
+            # We use '1080', '720', etc. as keys for the frontend
+            ep_num = t.episode.episodeInt if t.episode else 0
+            if ep_num == 0: continue
+            
+            # Helper for proxy URL
+            # We provide all expected quality keys, the proxy will handle the choice
+            proxy_links = {
+                "360": f"https://api.nekostream.ru/anime365/stream/{t.id}/index.m3u8?quality=360",
+                "480": f"https://api.nekostream.ru/anime365/stream/{t.id}/index.m3u8?quality=480",
+                "720": f"https://api.nekostream.ru/anime365/stream/{t.id}/index.m3u8?quality=720",
+                "1080": f"https://api.nekostream.ru/anime365/stream/{t.id}/index.m3u8?quality=1080"
+            }
+            
+            sources_map[author]["seasons"][0]["episodes"].append({
+                "episode": ep_num,
+                "links": proxy_links,
+                "name": t.title
+            })
+            
+        # Sort episodes for each source
+        for author in sources_map:
+            sources_map[author]["seasons"][0]["episodes"].sort(key=lambda x: x["episode"])
+            
+        return {
+            "found": True,
+            "sources": list(sources_map.values())
+        }
+        
+    except Exception as e:
+        print(f"[Anime365/video-links] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"found": False, "error": str(e)}
+
 
 @app.get("/custom/popular")
 async def custom_popular(limit: int = 10):
